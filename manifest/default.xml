@@ -104,6 +104,8 @@
   
   <project name="xstats" path="godeps/src/github.com/rs/xstats" remote="rs" revision="b242768748b7c5bad2f2c72020f2daf76760d98d"/>
 
+  <project name="xhandler" path="godeps/src/github.com/rs/xhandler" remote="rs" revision="ed27b6fd65218132ee50cd95f38474a3d8a2cd12"/>
+
 </manifest>
 
 
