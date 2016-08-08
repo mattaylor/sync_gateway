@@ -35,6 +35,10 @@ import (
 	"github.com/couchbase/sync_gateway/auth"
 	"github.com/couchbase/sync_gateway/base"
 	"github.com/couchbase/sync_gateway/db"
+	"net"
+	"log"
+	"github.com/rs/xstats"
+	"github.com/rs/xstats/telegraf"
 )
 
 // If set to true, JSON output will be pretty-printed.
@@ -47,8 +51,32 @@ var lastSerialNum uint64 = 0
 
 var restExpvars = expvar.NewMap("syncGateway_rest")
 
+var xs xstats.XStater;
+
+// Defines interval between flushes to statsd server
+var statsdFlushInterval = 5 * time.Second
+
+var requests_total float64 = 0;
+var requests_active float64 = 0;
+
 func init() {
 	DebugMultipart = (os.Getenv("GatewayDebugMultipart") != "")
+
+	// Connection to the statsd server
+	statsdWriter, err := net.Dial("udp", "127.0.0.1:8125")
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	// Create the stats client
+	xs = xstats.New(telegraf.New(statsdWriter, statsdFlushInterval))
+
+	// Global tags sent with all metrics (only with supported clients like datadog's)
+	xs.AddTags("role:my-service", "dc:sv6")
+
+	// Send some observations
+	xs.Count("requests", 1, "tag")
+	xs.Timing("something", 5*time.Millisecond, "tag")
 }
 
 var kNotFoundError = base.HTTPErrorf(http.StatusNotFound, "missing")
@@ -121,7 +149,17 @@ func newHandler(server *ServerContext, privs handlerPrivs, r http.ResponseWriter
 func (h *handler) invoke(method handlerMethod) error {
 	restExpvars.Add("requests_total", 1)
 	restExpvars.Add("requests_active", 1)
+
+	requests_total += 1;
+	requests_active += 1;
+
 	defer restExpvars.Add("requests_active", -1)
+	//defer xs.Gauge("requests_active", 10, "tag1")
+	defer decrementGuestsActiveAndPublishStats()
+
+	xs.Count("requests_total",requests_total, "tag1")
+	xs.Gauge("requests_active", requests_active, "tag1")
+
 
 	var err error
 	if h.server.config.CompressResponses == nil || *h.server.config.CompressResponses {
@@ -795,4 +833,14 @@ func getRestrictedInt(rawValue *uint64, defaultValue, minValue, maxValue uint64,
 	}
 
 	return value
+}
+
+func ParseFloat64(s string) (f float64) {
+	f1, _ := strconv.ParseFloat(s, 64)
+	return f1
+}
+
+func decrementGuestsActiveAndPublishStats() {
+	requests_active -= 1
+	xs.Gauge("requests_active", requests_active, "tag1")
 }
